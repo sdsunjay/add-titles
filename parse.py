@@ -1,11 +1,11 @@
+import config
 import tmdbsimple as tmdb
 import psycopg2
 
 def database():
 
     #Define our connection string
-    conn_string = "host='localhost' dbname='test_database' user='test_user' password = 'your_password'"
-
+    conn_string = "host='localhost' dbname='{}' user='{}' password = '{}'".format(config.DB_NAME, config.USER, config.PASSWORD)
     # print the connection string we will use to connect
     print("Connecting to database\n	->%s" % (conn_string))
 
@@ -64,7 +64,7 @@ def create_table(conn):
     cur.close()
 
 # For testing
-def main1():
+def test_main():
 
     genres = [{"id":28,"name":"Action"},{"id":12,"name":"Adventure"},{"id":16,"name":"Animation"},{"id":35,"name":"Comedy"},{"id":80,"name":"Crime"},{"id":99,"name":"Documentary"},{"id":18,"name":"Drama"},{"id":10751,"name":"Family"},{"id":14,"name":"Fantasy"},{"id":36,"name":"History"},{"id":27,"name":"Horror"},{"id":10402,"name":"Music"},{"id":9648,"name":"Mystery"},{"id":10749,"name":"Romance"},{"id":878,"name":"Science Fiction"},{"id":10770,"name":"TV Movie"},{"id":53,"name":"Thriller"},{"id":10752,"name":"War"},{"id":37,"name":"Western"}]
 
@@ -93,13 +93,31 @@ def main1():
 
 # query and store all movies from the API
 def main():
-    tmdb.API_KEY = 'your_api_token'
+    tmdb.API_KEY = config.API_KEY
+    conn = database()
+    # create_table(conn)
+    # Open a cursor to perform database operations
+    # genre_cur = conn.cursor()
+    # for genre in genres:
+    #    handle_genre(conn, genre_cur, genre)
+
+    # genre_cur.close()
+    # Open a cursor to perform database operations
+    movie_cur = conn.cursor()
+
     movies = tmdb.Movies()
     # TODO (Sunjay) make the page rage nonstatic
-    for page_number in range(1, 992):
-        dict_of_movies = movies.popular(page_number)
+    for page_number in range(1, 3):
+        dict_of_movies = movies.popular(**{'page' :  page_number})
         for movie in dict_of_movies['results']:
-            handle_movie(movie)
+            handle_movie(conn, movie_cur, movie)
+
+    # Make the changes to the database persistent
+    conn.commit()
+
+    # Close communication with the database
+    movie_cur.close()
+    conn.close()
 
 if __name__ == '__main__':
-    main1()
+    main()
