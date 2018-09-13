@@ -2,7 +2,8 @@ import config
 import tmdbsimple as tmdb
 import psycopg2
 from datetime import datetime
-
+import time
+from sqlalchemy.exc import IntegrityError
 
 def database():
 
@@ -28,13 +29,27 @@ def handle_genres(cur, movie_id, genre_ids, dt):
         cur.execute(
             "INSERT INTO categorizations(movie_id, genre_id, created_at, updated_at) VALUES (%s, %s, %s, %s)", (movie_id, genre_id, dt, dt))
 
+def check_movie(movie):
+    if all (k in movie for k in ('id','vote_count', 'vote_average', 'title', 'popularity', 'poster_path', 'original_language', 'backdrop_path', 'adult', 'overview', 'release_date')):
+        return True
+    else:
+        print(movie['title'] + ' FAIL \n')
+        return False
 
 def handle_movie(conn, cur, movie, dt):
     user_id = 1
     # if None not in movie.values():
-    cur.execute("INSERT INTO movies(id, user_id, vote_count, vote_average, title, popularity, poster_path, original_language, backdrop_path, adult, overview, release_date, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ", (movie['id'], user_id, movie['vote_count'], movie['vote_average'], movie['title'], movie['popularity'], movie['poster_path'], movie['original_language'], movie['backdrop_path'], movie['adult'], movie['overview'], movie['release_date'], dt, dt))
-    handle_genres(cur, movie['id'], movie['genre_ids'], dt)
+    try:
+        if check_movie(movie):
+            cur.execute("INSERT INTO movies(id, user_id, vote_count, vote_average, title, popularity, poster_path, original_language, backdrop_path, adult, overview, release_date, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ", (movie['id'], user_id, movie['vote_count'], movie['vote_average'], movie['title'], movie['popularity'], movie['poster_path'], movie['original_language'], movie['backdrop_path'], movie['adult'], movie['overview'], movie['release_date'], dt, dt))
+            handle_genres(cur, movie['id'], movie['genre_ids'], dt)
 
+    except psycopg2.DataError:
+        print('Data Error in ' + movie['title'] + ' \n')
+        conn.rollback()
+    except psycopg2.IntegrityError:
+        print('Integrity Error in ' + movie['title'] + ' \n')
+        conn.rollback()
 
 def handle_genre(conn, cur, genre, dt):
     cur.execute("INSERT INTO genres(id, name, created_at, updated_at) VALUES (%s, %s, %s, %s)",
@@ -126,11 +141,17 @@ def main():
     movies = tmdb.Movies()
     # TODO (Sunjay) make the page rage nonstatic
     dt = datetime.now()
-    for page_number in range(1, 5):
+    for page_number in range(1, 300):
         dict_of_movies = movies.popular(**{'page':  page_number})
         for movie in dict_of_movies['results']:
             handle_movie(conn, movie_cur, movie, dt)
-
+        if page_number % 35 == 0:
+            # Make the changes to the database persistent
+            conn.commit()
+            print('Page Number: '+ str(page_number) + ' Sleeping for 10 seconds.')
+            # Wait for 10 seconds to avoid rate limiting
+            time.sleep(10)
+            dt = datetime.now()
     # Make the changes to the database persistent
     conn.commit()
 
