@@ -35,13 +35,17 @@ def check_movie(movie):
     else:
         print(movie['title'] + ' FAIL \n')
         return False
-
 def handle_movie(conn, cur, movie, dt):
     user_id = 1
     # if None not in movie.values():
     try:
         if check_movie(movie):
-            cur.execute("INSERT INTO movies(id, user_id, vote_count, vote_average, title, popularity, poster_path, original_language, backdrop_path, adult, overview, release_date, created_at, updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ", (movie['id'], user_id, movie['vote_count'], movie['vote_average'], movie['title'], movie['popularity'], movie['poster_path'], movie['original_language'], movie['backdrop_path'], movie['adult'], movie['overview'], movie['release_date'], dt, dt))
+            cur.execute("INSERT INTO movies(id, user_id, vote_count,\
+                    vote_average, title, popularity, poster_path,\
+                    original_language, backdrop_path, adult, overview,\
+                    release_date, created_at, updated_at) VALUES (%s, %s, %s,\
+                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON\
+                            CONFLICT (id) DO NOTHING", (movie['id'], user_id, movie['vote_count'], movie['vote_average'], movie['title'], movie['popularity'], movie['poster_path'], movie['original_language'], movie['backdrop_path'], movie['adult'], movie['overview'], movie['release_date'], dt, dt))
             handle_genres(cur, movie['id'], movie['genre_ids'], dt)
 
     except psycopg2.DataError:
@@ -130,18 +134,20 @@ def main():
     genres = [{"id": 28, "name": "Action"}, {"id": 12, "name": "Adventure"}, {"id": 16, "name": "Animation"}, {"id": 35, "name": "Comedy"}, {"id": 80, "name": "Crime"}, {"id": 99, "name": "Documentary"}, {"id": 18, "name": "Drama"}, {"id": 10751, "name": "Family"}, {"id": 14, "name": "Fantasy"}, {"id": 36, "name": "History"}, {
         "id": 27, "name": "Horror"}, {"id": 10402, "name": "Music"}, {"id": 9648, "name": "Mystery"}, {"id": 10749, "name": "Romance"}, {"id": 878, "name": "Science Fiction"}, {"id": 10770, "name": "TV Movie"}, {"id": 53, "name": "Thriller"}, {"id": 10752, "name": "War"}, {"id": 37, "name": "Western"}]
 
-    dt = datetime.now()
-    for genre in genres:
-        handle_genre(conn, genre_cur, genre, dt)
+    # dt = datetime.now()
+    # for genre in genres:
+     #   handle_genre(conn, genre_cur, genre, dt)
 
-    genre_cur.close()
+    # genre_cur.close()
     # Open a cursor to perform database operations
     movie_cur = conn.cursor()
 
     movies = tmdb.Movies()
+    discover = tmdb.Discover()
     # TODO (Sunjay) make the page rage nonstatic
     dt = datetime.now()
-    for page_number in range(1, 300):
+    for page_number in range(1, 290):
+        #dict_of_movies = discover.movie(**{'page': page_number, 'release_date.gte': '2018-08-01', 'release_date.lte': '2018-10-30'})
         dict_of_movies = movies.popular(**{'page':  page_number})
         for movie in dict_of_movies['results']:
             handle_movie(conn, movie_cur, movie, dt)
