@@ -30,48 +30,28 @@ def handle_genres(cur, movie_id, genre_ids):
     for genre_id in genre_ids:
         cur.execute(
             "INSERT INTO categorizations(movie_id, genre_id, created_at, updated_at) VALUES (%s, %s, %s, %s)", (movie_id, genre_id, dt, dt))
-
-
-def check_movie_field_values(movie):
-    try:
-        keySet = ['release_date', 'id', 'vote_count', 'vote_average', 'title', 'popularity',
-                'poster_path', 'original_language', 'backdrop_path', 'adult',
-                'overview', 'genre_ids']
-        for key in keySet:
-            if key in movie:
-                value = movie[key]
-                if value is None or value == "":
-                        return False, key
-
-        return True, ""
-    except:
-        if movie['title'] is not None or movie['title'] != "":
-            print(movie['title'] + ' cause an error. Not inserted!\n')
-        else:
-            print('Some movie without a title caused an error\n')
-        return False, None
-
+    return True
 
 def check_movie_fields_exist(movie):
     try:
-        keyset = ['release_date', 'id', 'vote_count', 'vote_average', 'title', 'popularity',
+        keySet = ['id', 'release_date', 'title', 'vote_count', 'vote_average', 'popularity',
                 'poster_path', 'original_language', 'backdrop_path', 'adult',
                 'overview', 'genre_ids']
-        value = none
-        if all(k in movie for k in keyset):
-            return True
-        else:
-            if movie['title'] is not None or movie['title'] != "":
-                print(movie['title'] + ' was missing fields. not inserted!\n')
-            else:
-                print('some movie without a title was missing fields\n')
-            return False
+        for key in keySet:
+            if key not in movie:
+                if movie['title'] is not None or movie['title'] != "":
+                    print(movie['title'] + ' was missing '+ key +  '. not inserted!\n')
+                else:
+                    print('Movie without a title was missing '+ key + '\n')
+                return False, key
+        return True, ''
+
     except:
         if movie['title'] is not None or movie['title'] != "":
             print(movie['title'] + ' cause an error. not inserted!\n')
         else:
-            print('some movie without a title caused an error\n')
-        return False
+            print('Movie without a title caused an error\n')
+        return False, ''
 
 
 def movie_exists(cur, movie_id):
@@ -81,6 +61,10 @@ def movie_exists(cur, movie_id):
         return False
     return True
 
+def max_movie_position(cur):
+    cur.execute("SELECT max(position) FROM movies")
+    row = cur.fetchone()
+    return row[0]
 
 def set_blank_movie_key(key):
     if key == 'release_date':
@@ -93,41 +77,31 @@ def set_blank_movie_key(key):
         return ""
     return ""
 
-
 def handle_movie(conn, cur, movie, position, page_number):
-    # if None not in movie.values():
     try:
         dt = datetime.now()
-        if check_movie_fields_exist(movie):
-            flag, key = check_movie_field_values(movie)
-            if not flag:
-                if key:
-                    movie[key] = set_blank_movie_key(key)
-                else:
-                    return
-            if not movie_exists(cur, movie['id']):
-                cur.execute("INSERT INTO movies(id, vote_count,\
-                            vote_average, title, popularity, poster_path,\
-                            original_language, backdrop_path, adult, overview,\
-                            release_date, position, page_number, created_at, updated_at) VALUES (%s, %s, %s,\
-                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON\
-                            CONFLICT (id) DO NOTHING", (movie['id'],
-                            movie['vote_count'], movie['vote_average'],
-                            movie['title'], movie['popularity'],
-                            movie['poster_path'],
-                            movie['original_language'],
-                            movie['backdrop_path'], movie['adult'],
-                            movie['overview'], movie['release_date'],
-                            position, page_number, dt, dt))
-                handle_genres(cur, movie['id'], movie['genre_ids'])
-            else:
-                print(movie['title'] + ' already exists in the database.')
+        flag, key = check_movie_fields_exist(movie)
+        if not flag:
+            movie[key] = set_blank_movie_key(key)
+        if not movie_exists(cur, movie['id']):
+            cur.execute("INSERT INTO movies(id, vote_count,\
+                        vote_average, title, popularity, poster_path,\
+                        original_language, backdrop_path, adult, overview,\
+                        release_date, position, page_number, created_at, \
+                        updated_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON\
+                        CONFLICT (id) DO NOTHING", (movie['id'], movie['vote_count'], movie['vote_average'], movie['title'], movie['popularity'], movie['poster_path'], movie['original_language'], movie['backdrop_path'], movie['adult'], movie['overview'], movie['release_date'], position, page_number, dt, dt))
+            return handle_genres(cur, movie['id'], movie['genre_ids'])
+        else:
+            print(movie['title'] + ' already exists in the database.')
+            return False
 
     except psycopg2.DataError:
         print('Data Error in ' + movie['title'] + ' \n')
+        return False
         # conn.rollback()
     except psycopg2.IntegrityError:
         print('Integrity Error in ' + movie['title'] + ' \n')
+        return False
         # conn.rollback()
 
 
@@ -136,8 +110,8 @@ def handle_genre(conn, cur, genre):
     cur.execute("INSERT INTO genres(id, name, created_at, updated_at) VALUES (%s, %s, %s, %s)",
                 (genre['id'], genre['name'], dt, dt))
 
-
 def create_table(conn):
+    # conn.cursor will return a cursor object, you can use this cursor to perform queries
     cur = conn.cursor()
     cur.execute("""
     CREATE TABLE IF NOT EXISTS genres(
@@ -149,7 +123,6 @@ def create_table(conn):
     cur.execute("""
     CREATE TABLE IF NOT EXISTS movies( \
         id integer PRIMARY KEY, \
-        user_id integer, \
         vote_count integer, \
         vote_average NUMERIC (2, 1), \
         title text NOT NULL UNIQUE, \
@@ -159,8 +132,8 @@ def create_table(conn):
         backdrop_path text, \
         adult BOOLEAN, \
         overview text, \
-        release_date date \
-        position integer \
+        release_date date, \
+        position intege,r \
         page_number integer \
     )""")
 
@@ -201,80 +174,107 @@ def test_main():
     movie_cur = conn.cursor()
     position = 1
     for movie in movies:
-        handle_movie(conn, movie_cur, movie, position, 0)
-        position += 1
-        # Make the changes to the database persistent
-        conn.commit()
+        if handle_movie(conn, movie_cur, movie, position, 0):
+            position += 1
+            # Make the changes to the database persistent
+            conn.commit()
 
     # Close communication with the database
     movie_cur.close()
     conn.close()
 
+def read_titles_from_file(conn, movie_cur, filename, search):
+
+    movies_not_found = []
+    movies_with_errors = []
+    position = int(max_movie_position(movie_cur)) + 1
+    print('Starting position: ' + str(position))
+    with open(filename, "r") as ins:
+        for line in ins:
+            movies = search.movie(**{'query': line.rstrip('\n')})
+            if movies['total_results'] > 0:
+                for movie in movies['results']:
+                    if handle_movie(conn, movie_cur, movie, position, movie['page']):
+                        position += 1
+                        # Make the changes to the database persistent
+                        conn.commit()
+                    else:
+                        movies_with_errors.append(line)
+            else:
+                movies_not_found.append(line)
+            if position % 36 == 0:
+                print('Position ' + str(position) + ' Sleeping for 10 seconds.')
+                # Wait for 10 seconds to avoid rate limiting
+                time.sleep(10)
+
+    print('Movies not found: \n')
+    for title in movies_not_found:
+        print(title)
+    print('Movies with errors: \n')
+    for title in movies_with_errors:
+        print(title)
+
+def add_popular_movies(conn, movie_cur, movies):
+    movies_with_errors = []
+
+    position = 1
+    # TODO (Sunjay) make the position and the page range
+    # dynamic
+    for page_number in range(1, 990):
+        # dict_of_movies = discover.movie(**{'page': page_number, 'release_date.gte': '2018-08-01', 'release_date.lte': '2018-10-30'})
+        # dict_of_movies = discover.movie(**{'page': page_number})
+        dict_of_movies = movies.popular(**{'page':  page_number})
+        for movie in dict_of_movies['results']:
+            if handle_movie(conn, movie_cur, movie, position, 0):
+                position += 1
+                # Make the changes to the database persistent
+                conn.commit()
+            else:
+                 movies_with_errors.append(line)
+        if page_number % 36 == 0:
+            print('Page Number: ' + str(page_number) + ' Sleeping for 10 seconds.')
+            # Wait for 10 seconds to avoid rate limiting
+            time.sleep(10)
+    print('Movies with errors: \n')
+    for title in movies_with_errors:
+        print(title)
 
 # query and store all movies from the API
 def main():
-    tmdb.API_KEY = config.API_KEY
-    conn = database()
-    # create_table(conn)
-    # Open a cursor to perform database operations
-    genre_cur = conn.cursor()
-    genres = [{"id": 28, "name": "Action"}, {"id": 12, "name": "Adventure"}, {"id": 16, "name": "Animation"}, {"id": 35, "name": "Comedy"}, {"id": 80, "name": "Crime"}, {"id": 99, "name": "Documentary"}, {"id": 18, "name": "Drama"}, {"id": 10751, "name": "Family"}, {"id": 14, "name": "Fantasy"}, {"id": 36, "name": "History"}, {
-        "id": 27, "name": "Horror"}, {"id": 10402, "name": "Music"}, {"id": 9648, "name": "Mystery"}, {"id": 10749, "name": "Romance"}, {"id": 878, "name": "Science Fiction"}, {"id": 10770, "name": "TV Movie"}, {"id": 53, "name": "Thriller"}, {"id": 10752, "name": "War"}, {"id": 37, "name": "Western"}]
-
-    # Open a cursor to perform database operations
-    movie_cur = conn.cursor()
     parser = argparse.ArgumentParser(
         description='A script for reading title into movies database')
     parser.add_argument("-v", "--verbose",
                         help="increase output verbosity", action="store_true")
     parser.add_argument(
-        "-db", "--database", help="utilize the database for storing failures", action="store_true")
+        "-db", "--database", help="utilize the database for storing movies", action="store_true")
     parser.add_argument(
         "-p", "--popular", help="insert all popular movies into the database", action="store_true")
     parser.add_argument('-f', "--filename", nargs='*',
-                        type=str, help='read all movies in a file')
+                        type=str, help='insert movie titles from file into the database')
     args = parser.parse_args()
+
     datetime = time.strftime('%Y-%m-%d %H:%M:%S')
+
+    tmdb.API_KEY = config.API_KEY
+    # Open a connection to the database
+    conn = database()
+    # Open a cursor to perform database operations
+    movie_cur = conn.cursor()
+
 
     if args.filename:
         search = tmdb.Search()
-        array = []
-        with open("small.txt", "r") as ins:
-            for line in ins:
-                movies = search.movie(**{'query': line.rstrip('\n')})
-                if movies['total_results'] > 0:
-                    for movie in movies['results']:
-                        handle_movie(conn, movie_cur, movie, 0, 0)
-                        conn.commit()
-                else:
-                    array.append(line)
-            print('Movies not found: \n')
-            for title in array:
-                print(title)
-
+        for filename in args.filename:
+            if filename.endswith('.txt'):
+                print('Reading from ' + filename)
+                read_titles_from_file(conn, movie_cur, filename, search)
     elif args.popular:
         movies = tmdb.Movies()
         # discover = tmdb.Discover()
-        position = 1
-        # TODO (Sunjay) make the page rage nonstatic
-        for page_number in range(1, 990):
-            # dict_of_movies = discover.movie(**{'page': page_number, 'release_date.gte': '2018-08-01', 'release_date.lte': '2018-10-30'})
-            # dict_of_movies = discover.movie(**{'page': page_number})
-            dict_of_movies = movies.popular(**{'page':  page_number})
-            for movie in dict_of_movies['results']:
-                handle_movie(conn, movie_cur, movie, position, page_number)
-                position += 1
-                # Make the changes to the database persistent
-                conn.commit()
-            if page_number % 36 == 0:
-                # Make the changes to the database persistent
-                # conn.commit()
-                print('Page Number: ' + str(page_number) + ' Sleeping for 10 seconds.')
-                # Wait for 10 seconds to avoid rate limiting
-                time.sleep(10)
+        add_popular_movies(conn, movie_cur, movies)
 
         print("Final Position: " + str(position))
-        print("Final Page NUmber: " + str(page_number))
+        print("Final Page Number: " + str(page_number))
 
     # Close communication with the database
     movie_cur.close()
@@ -282,5 +282,6 @@ def main():
 
 
 if __name__ == '__main__':
+    # use test_main to create tables and genres
     # test_main()
     main()
