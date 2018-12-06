@@ -174,7 +174,7 @@ def update_movie_info(cur, movie):
         print(error)
     return False
 
-def update_movie(cur, movie):
+def update_movie(conn, cur, movie):
     # TODO (Sunjay) update status too for where release date is less than today
     """ update vote_count, vote_average, popularity based on the movie id """
     sql = "UPDATE movies SET vote_count = %s, vote_average = %s, popularity = %s, release_date = %s, updated_at = %s WHERE id = %s"
@@ -186,7 +186,7 @@ def update_movie(cur, movie):
         # get the number of updated rows
         updated_rows = cur.rowcount
         # Commit the changes to the database
-        # conn.commit()
+        conn.commit()
     except (Exception, psycopg2.DatabaseError) as error:
         print(error)
     return updated_rows == 1
@@ -214,10 +214,18 @@ def handle_movie(conn, cur, movie):
             movie[key] = set_blank_movie_key(movie, key)
         if not movie_exists(cur, movie['id']):
             # insert new movie title and additional info
-            return insert_movie(cur, movie)
+            if insert_movie(cur, movie):
+                # Make the changes to the database persistent
+                conn.commit()
+                # Get a new cursor
+                update_movie_info_cursor = conn.cursor()
+                something_something(conn, update_movie_info_cursor, movie['id'])
+                # Close cursor
+                update_movie_info_cursor.close()
+
         else:
             # update movie fields: vote_count, vote_average, popularity
-            return update_movie(cur, movie)
+            return update_movie(conn, cur, movie)
 
     except psycopg2.DataError:
         print('Data Error in ' + movie['title'] + ' \n')
@@ -282,13 +290,11 @@ def read_titles_from_file(conn, movie_cur, filename, search):
                 for movie in movies['results']:
                     if handle_movie(conn, movie_cur, movie):
                         inserted_movies = inserted_movies + 1
-                        # Make the changes to the database persistent
-                        conn.commit()
                     else:
                         movies_with_errors.append(line)
             else:
                 movies_not_found.append(line)
-            if counter % 36 == 0:
+            if counter % 35 == 0:
                 print('Counter ' + str(counter) + ' Sleeping for 10 seconds.')
                 # Wait for 10 seconds to avoid rate limiting
                 time.sleep(10)
@@ -312,14 +318,29 @@ def help_get_movie_info(conn, cursor, movie_dict):
                 # print('Changes persisted')
                 # Make the changes to the database persistent
                 conn.commit()
+                return True
         else:
             print('Error occurred with: ' + movie_dict['title'])
+            return False
     except IOError as e:
         print("I/O error({0}): {1}".format(e.errno, e.strerror))
     except OSError as err:
         print("OS error: {0}".format(err))
     except ValueError:
         print("Could not convert data to an integer.")
+
+def something_something(conn, cursor, movie_id):
+
+    # Get movie info using existing movie id
+    movie = tmdb.Movies(movie_id)
+    try:
+        movie_dict = movie.info()
+        return help_get_movie_info(conn, cursor, movie_dict)
+    except:
+        print("Error: movie id ( " + str(movie_id) + " ) not updated.")
+        print("Unexpected error:", sys.exc_info()[0])
+        traceback.print_exc(file=sys.stdout)
+        return False
 
 def get_movie_info(conn, cursor):
     """ Call tmdb API to get details for a movie """
@@ -342,19 +363,7 @@ def get_movie_info(conn, cursor):
                 # check that the movie does not already exist in
                 # movie_production_companies table
                 if not company_and_movie_exists(cursor, row[0]):
-                    movie = tmdb.Movies(row[0])
-                    try:
-                        movie_dict = movie.info()
-                        help_get_movie_info(conn, cursor, movie_dict)
-                    except:
-                        print("Unexpected error:", sys.exc_info()[0])
-                        traceback.print_exc(file=sys.stdout)
-                    #except urllib.error.HTTPError as err:
-                    #    print(err.code)
-                    #    print('Error with movie ID ' + str(row[0]))
-                    #except requests.exceptions.HTTPError as e:
-                    #    print(' HTTP error: ' + str(e))
-                    #    print('Error with movie ID ' + str(row[0]))
+                    something_something(conn, cursor, row[0])
                     counter =  counter + 1
                     if counter % 40 == 0:
 
@@ -381,15 +390,14 @@ def get_movie_info(conn, cursor):
 def add_popular_movies(conn, movie_cur, movies):
     movies_with_errors = []
 
-    for page_number in range(1, 990):
-        # dict_of_movies = discover.movie(**{'page': page_number, 'release_date.gte': '2018-08-01', 'release_date.lte': '2018-10-30'})
+    for page_number in range(325, 990):
+        # discover = tmdb.Discover()
+        # dict_of_movies = discover.movie(**{'page': page_number, 'release_date.gte': '2018-08-01', 'release_date.lte': '2018-12-30'})
         # dict_of_movies = discover.movie(**{'page': page_number})
         dict_of_movies = movies.popular(**{'page':  page_number})
         for movie in dict_of_movies['results']:
-            if handle_movie(conn, movie_cur, movie):
-                # Make the changes to the database persistent
-                conn.commit()
-            else:
+            flag = handle_movie(conn, movie_cur, movie)
+            if not flag:
                  movies_with_errors.append(movie['title'] + '\n')
         if page_number % 36 == 0:
             print('Page Number: ' + str(page_number) + ' Sleeping for 10 seconds.')
@@ -433,7 +441,6 @@ def main():
                     print('Skipping: ' + filename)
         elif args.popular:
             movies = tmdb.Movies()
-            # discover = tmdb.Discover()
             add_popular_movies(conn, movie_cur, movies)
         elif args.update:
             print('Updating all movies')
