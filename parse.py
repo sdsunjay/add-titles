@@ -374,7 +374,8 @@ def get_movie_info(conn, cursor):
         conn1 = database()
         # Open a cursor to perform this one specific query
         movie_id_cursor = conn1.cursor('movie_id_cursor')
-        sql = "SELECT id, title FROM movies ORDER BY title LIMIT 100000 OFFSET 34000"
+        # sql = "SELECT id, title FROM movies WHERE created_at > '2019-01-05 01:01:24' ORDER BY title LIMIT 100000"
+        sql = "SELECT id, title FROM movies ORDER BY title LIMIT 100000"
         movie_id_cursor.execute(sql)
         while True:
             rows = movie_id_cursor.fetchmany(5000)
@@ -404,7 +405,7 @@ def get_movie_info(conn, cursor):
 
 def add_popular_movies(conn, movie_cur, movies):
     movies_with_errors = []
-
+    counter = 0
     for page_number in range(1, 300):
         # discover = tmdb.Discover()
         # dict_of_movies = discover.movie(**{'page': page_number, 'release_date.gte': '2018-08-01', 'release_date.lte': '2018-12-30'})
@@ -412,6 +413,7 @@ def add_popular_movies(conn, movie_cur, movies):
         dict_of_movies = movies.popular(**{'page':  page_number})
         for movie in dict_of_movies['results']:
             flag = handle_movie(conn, movie_cur, movie)
+            counter = counter + 1
             if not flag:
                  movies_with_errors.append(movie['title'] + '\n')
         if page_number % 45 == 0:
