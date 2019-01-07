@@ -33,7 +33,8 @@ def check_db_for_titles(conn, titles_list):
         for title in titles_list:
             # print('Title: ' + title)
             # "'{0}' is longer than '{1}'".format(name1, name2)
-            cur.execute("SELECT true FROM movies where lower(title)=%s",(title))
+            # cur.execute("SELECT true FROM movies where lower(title)=%s",(title))
+            cur.execute("SELECT true FROM movies WHERE lower(title) = %(title)s", {"title": title})
             # print(cur.fetchone())
             # print("The number of parts: ", cur.rowcount)
             row = cur.fetchone()
@@ -50,7 +51,7 @@ def check_db_for_titles(conn, titles_list):
 def main():
 
     conn = database()
-    titles_list= read_words('titles/small_apple_kaggle.txt')
+    titles_list= read_words('titles/apple_kaggle.txt')
     check_db_for_titles(conn, titles_list)
 
 if __name__ == '__main__':
