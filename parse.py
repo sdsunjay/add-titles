@@ -292,7 +292,8 @@ def sleep_until_connected(counter):
         if is_connected():
             break
         else:
-            print('Sleeping for another 8 seconds')
+            print('Sleeping for 30 seconds')
+            time.sleep(30)
     return True
 
 def read_titles_from_file(conn, movie_cur, filename, search):
@@ -313,7 +314,7 @@ def read_titles_from_file(conn, movie_cur, filename, search):
                         movies_with_errors.append(line)
             else:
                 movies_not_found.append(line)
-            if counter % 35 == 0:
+            if counter % 45 == 0:
                 sleep_until_connected(counter)
 
 
@@ -373,7 +374,7 @@ def get_movie_info(conn, cursor):
         conn1 = database()
         # Open a cursor to perform this one specific query
         movie_id_cursor = conn1.cursor('movie_id_cursor')
-        sql = "SELECT id, title FROM movies ORDER BY title LIMIT 100000 OFFSET 30000"
+        sql = "SELECT id, title FROM movies ORDER BY title LIMIT 100000 OFFSET 34000"
         movie_id_cursor.execute(sql)
         while True:
             rows = movie_id_cursor.fetchmany(5000)
@@ -384,14 +385,11 @@ def get_movie_info(conn, cursor):
                 # movie_production_companies table
                 something_something(conn, cursor, row[0])
                 counter =  counter + 1
-                if counter % 50 == 0:
+                if counter % 45 == 0:
                     print('Last movie ID: ' + str(row[0]))
                     print('Last movie title: ' + str(row[1]))
-                    print('Counter: ' + str(counter))
-                    print('Sleeping for 8 seconds.')
                     # Wait for 8 seconds to avoid rate limiting
-                    time.sleep(8)
-                    # sleep_until_connected(counter)
+                    sleep_until_connected(counter)
     except:
         print("Unexpected error:", sys.exc_info()[0])
         print("Exception in user code:")
@@ -416,10 +414,9 @@ def add_popular_movies(conn, movie_cur, movies):
             flag = handle_movie(conn, movie_cur, movie)
             if not flag:
                  movies_with_errors.append(movie['title'] + '\n')
-        if page_number % 36 == 0:
-            print('Page Number: ' + str(page_number) + ' Sleeping for 10 seconds.')
-            # Wait for 10 seconds to avoid rate limiting
-            time.sleep(10)
+        if page_number % 45 == 0:
+            print('Page Number: ' + str(page_number))
+            sleep_until_connected(counter)
     print('Movies with errors: \n')
     for title in movies_with_errors:
         print(title)
