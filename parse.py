@@ -8,6 +8,18 @@ import time
 from sqlalchemy.exc import IntegrityError
 import argparse
 import urllib3.request
+import socket
+
+
+def is_connected():
+    try:
+        # connect to the host -- tells us if the host is actually
+        # reachable
+        socket.create_connection(("www.google.com", 80))
+        return True
+    except OSError:
+        pass
+    return False
 
 def database():
     """ connect to the database """
@@ -77,7 +89,6 @@ def set_blank_movie_key(movie, key):
 
 def create_movie_production_company(cur, movie_id, company_id):
     """ Connect a movie with a production company """
-    movie_production_company_id = -1
     dt = datetime.now()
     sql = "INSERT INTO movie_production_companies(movie_id, company_id, created_at, updated_at) VALUES (%s, %s, %s, %s)"
     # execute the INSERT statement
@@ -86,10 +97,6 @@ def create_movie_production_company(cur, movie_id, company_id):
         return True
     except:
         return False
-     # get the generated id back
-    # movie_production_company_id = cur.fetchone()[0]
-    # print('Inserted: ' + str(movie_id) + ' ' + str(company_id))
-    # return movie_production_company_id != -1
 
 def create_company(cur, company):
     """ insert a new production company into the companies table """
@@ -123,15 +130,12 @@ def company_and_movie_exists(cur, movie_id):
     return True
 
 def handle_companies(cur, movie_id, movie_companies):
-    """ insert new companies and connect them with movies """
-    # print('handle companies')
-    # this does cause duplicates to be inserted
+    """ Insert new companies and connect them with movies """
     for company in movie_companies:
-        # print('company: ' + str(company))
         if not company_exists(cur, company['id']):
             create_company(cur, company)
         return create_movie_production_company(cur, movie_id, company['id'])
-    return False
+    return True
 
 def translate_status(status_string):
     """ translate status string into integer """
@@ -152,7 +156,7 @@ def translate_status(status_string):
     return -1
 
 def update_movie_info(cur, movie):
-    """ Update vote count, vote average, budget, runtime, revenue, popularity, status, etc into movie table """
+    """ Update vote_count, vote_average, budget, runtime, revenue, popularity, status, etc into movie table """
     sql = "UPDATE movies SET vote_count = %s, vote_average = %s, budget = %s,\
     runtime = %s, revenue = %s, popularity = %s, status = %s, tagline = %s,\
     adult = %s, release_date = %s, updated_at = %s WHERE id = %s"
@@ -161,11 +165,12 @@ def update_movie_info(cur, movie):
     try:
         movie_status = translate_status(movie['status'])
         if movie_status == -1:
+            movie_status = 0
             print('A valid status was not found')
         # execute the UPDATE  statement
         cur.execute(sql, (movie['vote_count'], movie['vote_average'],
-        movie['budget'], movie['runtime'], movie['revenue'], movie['popularity'], movie_status,
-        movie['tagline'], movie['adult'], movie['release_date'], dt, movie['id']))
+            movie['budget'], movie['runtime'], movie['revenue'],
+            movie['popularity'], movie_status, movie['tagline'], movie['adult'], movie['release_date'], dt, movie['id']))
         # print('Movie production companies: ' + movie['production_companies'])
         # get the number of updated rows
         updated_rows = cur.rowcount
@@ -223,9 +228,12 @@ def handle_movie(conn, cur, movie):
                 # Close cursor
                 update_movie_info_cursor.close()
 
-        else:
-            # update movie fields: vote_count, vote_average, popularity
-            return update_movie(conn, cur, movie)
+        # else:
+            # Get a new cursor
+        #    update_movie_info_cursor = conn.cursor()
+        #    something_something(conn, update_movie_info_cursor, movie['id'])
+            # Close cursor
+       #     update_movie_info_cursor.close()
 
     except psycopg2.DataError:
         print('Data Error in ' + movie['title'] + ' \n')
@@ -276,6 +284,17 @@ def create_table(conn):
     )""")
     cur.close()
 
+def sleep_until_connected(counter):
+    print('Counter ' + str(counter) + ' Sleeping for 8 seconds.')
+    while True:
+        # Wait for 8 seconds to avoid rate limiting
+        time.sleep(8)
+        if is_connected():
+            break
+        else:
+            print('Sleeping for another 8 seconds')
+    return True
+
 def read_titles_from_file(conn, movie_cur, filename, search):
 
     movies_not_found = []
@@ -295,9 +314,8 @@ def read_titles_from_file(conn, movie_cur, filename, search):
             else:
                 movies_not_found.append(line)
             if counter % 35 == 0:
-                print('Counter ' + str(counter) + ' Sleeping for 10 seconds.')
-                # Wait for 10 seconds to avoid rate limiting
-                time.sleep(10)
+                sleep_until_connected(counter)
+
 
     print('Movies not found:')
     for title in movies_not_found:
@@ -314,11 +332,15 @@ def help_get_movie_info(conn, cursor, movie_dict):
         if not flag:
             movie_dict[key] = set_blank_movie_key(movie_dict, key)
         if update_movie_info(cursor, movie_dict):
-            if handle_companies(cursor, movie_dict['id'], movie_dict['production_companies']):
-                # print('Changes persisted')
-                # Make the changes to the database persistent
-                conn.commit()
-                return True
+            conn.commit()
+            if not company_and_movie_exists(cursor, movie_dict['id']):
+                if handle_companies(cursor, movie_dict['id'], movie_dict['production_companies']):
+                    # Make the changes to the database persistent
+                    conn.commit()
+                else:
+                    print('Error occurred with: ' + movie_dict['title'] + ' (Companies)')
+                    return False
+            return True
         else:
             print('Error occurred with: ' + movie_dict['title'])
             return False
@@ -346,34 +368,30 @@ def get_movie_info(conn, cursor):
     """ Call tmdb API to get details for a movie """
     tmdb.API_KEY = config.API_KEY
     counter = 0
-    offset = 0
     try:
         # Open a connection to the database
         conn1 = database()
         # Open a cursor to perform this one specific query
         movie_id_cursor = conn1.cursor('movie_id_cursor')
-        sql = "SELECT id FROM movies ORDER BY title LIMIT 100000"
+        sql = "SELECT id, title FROM movies ORDER BY title LIMIT 100000 OFFSET 30000"
         movie_id_cursor.execute(sql)
         while True:
-            rows = movie_id_cursor.fetchmany(1000)
-            offset = offset + 1000
+            rows = movie_id_cursor.fetchmany(5000)
             if not rows:
                 break
             for row in rows:
                 # check that the movie does not already exist in
                 # movie_production_companies table
-                if not company_and_movie_exists(cursor, row[0]):
-                    something_something(conn, cursor, row[0])
-                    counter =  counter + 1
-                    if counter % 40 == 0:
-
-                        print('Last movie ID: ' + str(row[0]))
-                        print('Last movie title: ' + movie_dict['title'])
-                        print('Counter: ' + str(counter))
-                        print('Offset: ' + str(offset))
-                        print('Sleeping for 10 seconds.')
-                        # Wait for 10 seconds to avoid rate limiting
-                        time.sleep(10)
+                something_something(conn, cursor, row[0])
+                counter =  counter + 1
+                if counter % 50 == 0:
+                    print('Last movie ID: ' + str(row[0]))
+                    print('Last movie title: ' + str(row[1]))
+                    print('Counter: ' + str(counter))
+                    print('Sleeping for 8 seconds.')
+                    # Wait for 8 seconds to avoid rate limiting
+                    time.sleep(8)
+                    # sleep_until_connected(counter)
     except:
         print("Unexpected error:", sys.exc_info()[0])
         print("Exception in user code:")
@@ -382,15 +400,14 @@ def get_movie_info(conn, cursor):
         print('-'*60)
     finally:
         print('Final Counter: ' + str(counter))
-        print('Final Offset: ' + str(offset))
+        movie_id_cursor.close()
         # Close communication with the database
         conn1.close()
-        movie_id_cursor.close()
 
 def add_popular_movies(conn, movie_cur, movies):
     movies_with_errors = []
 
-    for page_number in range(325, 990):
+    for page_number in range(1, 300):
         # discover = tmdb.Discover()
         # dict_of_movies = discover.movie(**{'page': page_number, 'release_date.gte': '2018-08-01', 'release_date.lte': '2018-12-30'})
         # dict_of_movies = discover.movie(**{'page': page_number})
