@@ -10,7 +10,6 @@ import argparse
 import urllib3.request
 import socket
 
-
 def is_connected():
     try:
         # connect to the host -- tells us if the host is actually
@@ -289,10 +288,10 @@ def create_table(conn):
     cur.close()
 
 def sleep_until_connected(counter):
-    print('Counter ' + str(counter) + ' Sleeping for 10 seconds.')
+    print('Counter ' + str(counter) + ' Sleeping for 9 seconds.')
     while True:
-        # Wait for 10 seconds to avoid rate limiting
-        time.sleep(10)
+        # Wait for 9 seconds to avoid rate limiting
+        time.sleep(9)
         if is_connected():
             break
         else:
@@ -395,7 +394,7 @@ def get_movie_info(conn, cursor):
                 if counter % 35 == 0:
                     print('Last movie ID: ' + str(row[0]))
                     print('Last movie title: ' + str(row[1]))
-                    # Wait for 10 seconds to avoid rate limiting
+                    # Wait for 9 seconds to avoid rate limiting
                     sleep_until_connected(counter)
     except:
         print("Unexpected error:", sys.exc_info()[0])
@@ -412,7 +411,7 @@ def get_movie_info(conn, cursor):
 def add_popular_movies(conn, movie_cur, movies):
     movies_with_errors = []
     counter = 0
-    for page_number in range(50, 900):
+    for page_number in range(475, 900):
         # discover = tmdb.Discover()
         # dict_of_movies = discover.movie(**{'page': page_number, 'release_date.gte': '2018-08-01', 'release_date.lte': '2018-12-30'})
         # dict_of_movies = discover.movie(**{'page': page_number})
@@ -423,7 +422,8 @@ def add_popular_movies(conn, movie_cur, movies):
             flag = handle_movie(conn, movie_cur, movie)
             if not flag:
                  movies_with_errors.append(movie['title'] + '\n')
-            if counter % 35 == 0:
+
+            if counter % 40 == 0:
                 conn.commit()
                 print('Page Number: ' + str(page_number))
                 sleep_until_connected(counter)
