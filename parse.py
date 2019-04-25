@@ -5,7 +5,7 @@ import tmdbsimple as tmdb
 import psycopg2
 from datetime import datetime
 import time
-from sqlalchemy.exc import IntegrityError
+# from sqlalchemy.exc import IntegrityError
 import argparse
 import urllib3.request
 import socket
@@ -156,9 +156,7 @@ def translate_status(status_string):
 
 def update_movie_info(cur, movie):
     """ Update vote_count, vote_average, budget, runtime, revenue, popularity, status, etc into movie table """
-    sql = "UPDATE movies SET vote_count = %s, vote_average = %s, budget = %s,\
-    runtime = %s, revenue = %s, popularity = %s, status = %s, tagline = %s,\
-    adult = %s, release_date = %s, updated_at = %s WHERE id = %s"
+    sql = "UPDATE movies SET vote_count = %s, vote_average = %s, title = %s, tagline = %s, status = %s, poster_path = %s, backdrop_path = %s, overview = %s, popularity = %s, adult = %s, release_date = %s, budget = %s, revenue = %s, runtime = %s, updated_at = %s WHERE id = %s"
     # print(movie['title'])
     dt = datetime.now()
     updated_rows = 0
@@ -168,9 +166,7 @@ def update_movie_info(cur, movie):
             movie_status = 0
             print('A valid status was not found')
         # execute the UPDATE  statement
-        cur.execute(sql, (movie['vote_count'], movie['vote_average'],
-            movie['budget'], movie['runtime'], movie['revenue'],
-            movie['popularity'], movie_status, movie['tagline'], movie['adult'], movie['release_date'], dt, movie['id']))
+        cur.execute(sql, (movie['vote_count'], movie['vote_average'], movie['title'], movie['tagline'], movie_status, movie['poster_path'], movie['backdrop_path'], movie['overview'], movie['popularity'], movie['adult'], movie['release_date'], movie['budget'], movie['revenue'], movie['runtime'], dt, movie['id']))
         # print('Movie production companies: ' + movie['production_companies'])
         # get the number of updated rows
         updated_rows = cur.rowcount
@@ -178,23 +174,6 @@ def update_movie_info(cur, movie):
     except (Exception, psycopg2.DatabaseError) as error:
         print(error)
     return False
-
-def update_movie(conn, cur, movie):
-    # TODO (Sunjay) update status too for where release date is less than today
-    """ update vote_count, vote_average, popularity based on the movie id """
-    sql = "UPDATE movies SET vote_count = %s, vote_average = %s, popularity = %s, release_date = %s, updated_at = %s WHERE id = %s"
-    dt = datetime.now()
-    updated_rows = 0
-    try:
-        # execute the UPDATE  statement
-        cur.execute(sql, (movie['vote_count'], movie['vote_average'], movie['popularity'], movie['release_date'], dt, movie['id']))
-        # get the number of updated rows
-        updated_rows = cur.rowcount
-        # Commit the changes to the database
-        conn.commit()
-    except (Exception, psycopg2.DatabaseError) as error:
-        print(error)
-    return updated_rows == 1
 
 def insert_movie(cur, movie):
     """ Insert new movie into database """
@@ -416,8 +395,8 @@ def help_add_movies(conn, movie_cur, dict_of_movies, page_number, counter):
 
 def add_movies_in_theaters(conn, movie_cur, discover):
     counter = 1
-    for page_number in range(800, 1000):
-        dict_of_movies = discover.movie(**{'page': page_number, 'release_date.gte': '2018-01-01', 'release_date.lte': '2018-12-31'})
+    for page_number in range(1, 10):
+        dict_of_movies = discover.movie(**{'page': page_number, 'release_date.gte': '2013-01-01', 'release_date.lte': '2013-12-31'})
         counter = help_add_movies(conn, movie_cur, dict_of_movies, page_number, counter)
 
     print('Page Number: ' + str(page_number))
@@ -425,7 +404,7 @@ def add_movies_in_theaters(conn, movie_cur, discover):
 
 def add_popular_movies(conn, movie_cur, movies):
     counter = 1
-    for page_number in range(1, 900):
+    for page_number in range(166, 900):
         dict_of_movies = movies.popular(**{'page':  page_number})
         counter = help_add_movies(conn, movie_cur, dict_of_movies, page_number, counter)
 
