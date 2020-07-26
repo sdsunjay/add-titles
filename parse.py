@@ -59,15 +59,15 @@ def check_movie_fields_exist(movie):
                     print(movie['title'] + ' was missing '+ key + '\n')
                 else:
                     print('Movie without a title was missing '+ key + '\n')
-                return False, key
-        return True, ''
+                return key
+        return ''
 
     except:
         if movie['title'] is not None or movie['title'] != "":
             print(movie['title'] + ' cause an error. not inserted!\n')
         else:
             print('Movie without a title caused an error\n')
-        return False, ''
+        return 'title'
 
 
 def movie_exists(cur, movie_id):
@@ -82,7 +82,7 @@ def set_blank_movie_key(movie, key):
     if key == 'release_date':
         return "2025-01-01 00:00:01"
     elif key == 'poster_path':
-        if movie['backdrop_path'] is not None or movie['backdrop_path'] != "":
+        if movie['backdrop_path'] is not None or movie['backdrop_path']:
             return movie['backdrop_path']
     return ""
 
@@ -154,7 +154,7 @@ def translate_status(status_string):
         return 5
     return -1
 
-def update_movie_info(cur, movie):
+def update_movie_info(conn, cur, movie):
     """ Update vote_count, vote_average, budget, runtime, revenue, popularity, status, etc into movie table """
     sql = "UPDATE movies SET vote_count = %s, vote_average = %s, title = %s, tagline = %s, status = %s, poster_path = %s, backdrop_path = %s, overview = %s, popularity = %s, adult = %s, release_date = %s, budget = %s, revenue = %s, runtime = %s, updated_at = %s WHERE id = %s"
     # print(movie['title'])
@@ -170,7 +170,9 @@ def update_movie_info(cur, movie):
         # print('Movie production companies: ' + movie['production_companies'])
         # get the number of updated rows
         updated_rows = cur.rowcount
-        return updated_rows == 1
+        if updated_rows == 1:
+            conn.commit()
+            return True
     except (Exception, psycopg2.DatabaseError) as error:
         print(error)
     return False
@@ -194,8 +196,8 @@ def insert_movie(cur, movie):
 
 def handle_movie(conn, cur, movie):
     try:
-        flag, key = check_movie_fields_exist(movie)
-        if not flag:
+        key = check_movie_fields_exist(movie)
+        if key:
             movie[key] = set_blank_movie_key(movie, key)
         if not movie_exists(cur, movie['id']):
             # insert new movie title and additional info
@@ -203,7 +205,8 @@ def handle_movie(conn, cur, movie):
                 # Make the changes to the database persistent
                 conn.commit()
 
-        return something_something(conn, cur, movie['id'])
+        movie_dict = get_movie_dict(movie['id'])
+        return update_movie_and_company_info(conn, cursor, movie_dict)
 
     except psycopg2.DataError:
         print('Data Error in ' + movie['title'] + ' \n')
@@ -285,6 +288,8 @@ def read_titles_from_file(conn, movie_cur, filename, search):
                         movies_with_errors.append(line)
             else:
                 movies_not_found.append(line)
+            if counter % 140 == 0:
+                print(str(inserted_movies) + ' movies inserted or updated.')
             if counter % 35 == 0:
                 sleep_until_connected(counter)
 
@@ -298,13 +303,14 @@ def read_titles_from_file(conn, movie_cur, filename, search):
     print(str(counter) + ' searched.')
     print(str(inserted_movies) + ' movies inserted or updated.')
 
-def help_get_movie_info(conn, cursor, movie_dict):
+def update_movie_and_company_info(conn, cursor, movie_dict):
     try:
-        flag, key = check_movie_fields_exist(movie_dict)
-        if not flag:
+        if not movie_dict:
+            return False
+        key = check_movie_fields_exist(movie_dict)
+        if key:
             movie_dict[key] = set_blank_movie_key(movie_dict, key)
-        if update_movie_info(cursor, movie_dict):
-            conn.commit()
+        if update_movie_info(conn, cursor, movie_dict):
             if not company_and_movie_exists(cursor, movie_dict['id']):
                 if handle_companies(cursor, movie_dict['id'], movie_dict['production_companies']):
                     # Make the changes to the database persistent
@@ -323,21 +329,19 @@ def help_get_movie_info(conn, cursor, movie_dict):
     except ValueError:
         print("Could not convert data to an integer.")
 
-def something_something(conn, cursor, movie_id):
+def get_movie_dict(movie_id):
 
     try:
         # Get movie info using existing movie id
         tmdb.API_KEY = config.API_KEY
         movie = tmdb.Movies(movie_id)
         movie_dict = movie.info()
-        return help_get_movie_info(conn, cursor, movie_dict)
+        return movie_dict
     except:
-        print("Error: movie id ( " + str(movie_id) + " ) not updated.")
-        print("Unexpected error:", sys.exc_info()[0])
-        traceback.print_exc(file=sys.stdout)
+        print("Error: movie id (" + str(movie_id) + ") not updated.")
         return False
 
-def get_movie_info(conn, cursor):
+def update_all_movies(conn, cursor):
     """ Call tmdb API to get details for a movie """
     tmdb.API_KEY = config.API_KEY
     counter = 0
@@ -347,8 +351,9 @@ def get_movie_info(conn, cursor):
         # Open a cursor to perform this one specific query
         movie_id_cursor = conn1.cursor('movie_id_cursor')
         # sql = "SELECT id, title FROM movies WHERE created_at > '2019-01-05 01:01:24' ORDER BY title LIMIT 100000"
-        sql = "SELECT id, title FROM movies ORDER BY title LIMIT 100000"
+        sql = "SELECT id, title FROM movies ORDER BY title LIMIT 108000"
         movie_id_cursor.execute(sql)
+        movies_updated = 0
         while True:
             rows = movie_id_cursor.fetchmany(5000)
             if not rows:
@@ -356,11 +361,15 @@ def get_movie_info(conn, cursor):
             for row in rows:
                 # check that the movie does not already exist in
                 # movie_production_companies table
-                something_something(conn, cursor, row[0])
+                movie_dict = get_movie_dict(row[0])
+                if update_movie_and_company_info(conn, cursor, movie_dict):
+                    movies_updated = movies_updated + 1
                 counter =  counter + 1
                 if counter % 35 == 0:
                     print('Last movie ID: ' + str(row[0]))
                     print('Last movie title: ' + str(row[1]))
+                    print('Movie updated: ' + str(movies_updated))
+                    print('Counter: ' + str(counter))
                     # Wait for 10 seconds to avoid rate limiting
                     sleep_until_connected(counter)
     except:
@@ -375,9 +384,11 @@ def get_movie_info(conn, cursor):
         # Close communication with the database
         conn1.close()
 
-def help_add_movies(conn, movie_cur, dict_of_movies, page_number, counter):
+def help_add_movies(conn, movie_cur, dict_of_movies, page_number, counting_dict):
 
-    counter = counter + 1
+    counter = counting_dict['counter'] + 1
+    movies_inserted = counting_dict['movies_inserted'] + 1
+
     if counter % 40 == 0:
         conn.commit()
         print('Page Number: ' + str(page_number))
@@ -386,30 +397,42 @@ def help_add_movies(conn, movie_cur, dict_of_movies, page_number, counter):
         flag = handle_movie(conn, movie_cur, movie)
         if not flag:
             print('Error: ' + movie['title'] + '\n')
+        else:
+            movies_inserted = movies_inserted + 1
         counter = counter + 1
         if counter % 40 == 0:
             conn.commit()
             print('Page Number: ' + str(page_number))
             sleep_until_connected(counter)
-    return counter
 
-def add_movies_in_theaters(conn, movie_cur, discover):
-    counter = 1
+    return {'counter': counter, 'movies_inserted': movies_inserted}
+
+def add_movies_in_theaters(conn, movie_cur, discover, counter_dictionary):
     for page_number in range(1, 10):
         dict_of_movies = discover.movie(**{'page': page_number, 'release_date.gte': '2013-01-01', 'release_date.lte': '2013-12-31'})
-        counter = help_add_movies(conn, movie_cur, dict_of_movies, page_number, counter)
+        counter_dictionary = help_add_movies(conn, movie_cur, dict_of_movies, page_number, counter_dictionary)
 
     print('Page Number: ' + str(page_number))
-    print('Counter: ' + str(counter))
+    print('Counter: ' + str(counter_dictionary['counter']))
+    print('Movies Inserted: ' + str(counter_dictionary['movies_inserted']))
 
-def add_popular_movies(conn, movie_cur, movies):
-    counter = 1
-    for page_number in range(166, 900):
+def add_movies_now_playing(conn, movie_cur, movies, counter_dictionary):
+    for page_number in range(1, 100):
+        dict_of_movies = movies.now_playing(**{'page':  page_number})
+        counter_dictionary = help_add_movies(conn, movie_cur, dict_of_movies, page_number, conter_dictionary)
+
+    print('Page Number: ' + str(page_number))
+    print('Counter: ' + str(counter_dictionary['counter']))
+    print('Movies Inserted: ' + str(counter_dictionary['movies_inserted']))
+
+def add_popular_movies(conn, movie_cur, movies, counter_dictionary):
+    for page_number in range(1, 500):
         dict_of_movies = movies.popular(**{'page':  page_number})
-        counter = help_add_movies(conn, movie_cur, dict_of_movies, page_number, counter)
+        counter_dictionary = help_add_movies(conn, movie_cur, dict_of_movies, page_number, counter_dictionary)
 
     print('Page Number: ' + str(page_number))
-    print('Counter: ' + str(counter))
+    print('Counter: ' + str(counter_dictionary['counter']))
+    print('Movies Inserted: ' + str(counter_dictionary['movies_inserted']))
 
 # query and store all movies from the API
 def main():
@@ -435,6 +458,7 @@ def main():
         conn = database()
         # Open a cursor to perform database operations
         movie_cur = conn.cursor()
+        counter_dictionary = {'counter': 0, 'movies_inserted': 0}
 
 
         if args.filename:
@@ -447,13 +471,15 @@ def main():
                     print('Skipping: ' + filename)
         elif args.popular:
             movies = tmdb.Movies()
-            add_popular_movies(conn, movie_cur, movies)
+            add_popular_movies(conn, movie_cur, movies, counter_dictionary)
         elif args.theaters:
-            discover = tmdb.Discover()
-            add_movies_in_theaters(conn, movie_cur, discover)
+            movies = tmdb.Movies()
+            add_movies_now_playing(conn, movie_cur, movies, counter_dictionary)
+            # discover = tmdb.Discover()
+            # add_movies_in_theaters(conn, movie_cur, discover, counter_dictionary)
         elif args.update:
             print('Updating all movies')
-            get_movie_info(conn, movie_cur)
+            update_all_movies(conn, movie_cur)
 
     finally:
         # Close communication with the database
@@ -498,7 +524,7 @@ def test_main():
         conn = database()
         # Open a cursor to perform database operations
         cursor = conn.cursor()
-        get_movie_info(conn, cursor)
+        update_all_movies(conn, cursor)
 
     finally:
         print('Closing connection to database')
