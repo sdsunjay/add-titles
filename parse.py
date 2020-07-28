@@ -72,7 +72,8 @@ def check_movie_fields_exist(movie):
 
 def movie_exists(cur, movie_id):
     """ check if movie already exists in movies table """
-    cur.execute("SELECT true FROM movies WHERE id = %(id)s", {"id": movie_id})
+    sql = "SELECT true FROM movies WHERE id = {0}".format(movie_id)
+    cur.execute(sql)
     row = cur.fetchone()
     if row is None:
         return False
@@ -296,6 +297,16 @@ def delete_ids_in_file(conn, cursor, filename):
         for movie_id in lines:
             delete_movie(conn, cursor, movie_id)
 
+def validate_ids_in_file(conn, cursor, filename):
+
+    with open(filename, "r") as file_in:
+        lines = []
+        for line in file_in:
+            lines.append(line.rstrip())
+        for movie_id in lines:
+            if not movie_exists(cursor, movie_id):
+                print('Error: Movie ID {0} does not exist'.format(movie_id))
+
 def read_titles_from_file(conn, movie_cur, filename, search):
 
     movies_not_found = []
@@ -479,6 +490,8 @@ def main():
                         type=str, help='insert movie titles from file into the database')
     parser.add_argument('-d', "--delete", nargs='*',
                         type=str, help='delete movie IDs in file from the database')
+    parser.add_argument('-c', "--check", nargs='*',
+                        type=str, help='validate movie IDs in file exist in the database')
     args = parser.parse_args()
 
     datetime = time.strftime('%Y-%m-%d %H:%M:%S')
@@ -511,6 +524,13 @@ def main():
         elif args.update:
             print('Updating all movies')
             update_all_movies(conn, movie_cur)
+        elif args.check:
+            for filename in args.check:
+                if filename.endswith('.txt'):
+                    print('Reading from ' + filename)
+                    validate_ids_in_file(conn, movie_cur, filename)
+                else:
+                    print('Skipping: ' + filename)
         elif args.delete:
             for filename in args.delete:
                 if filename.endswith('.txt'):
