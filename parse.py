@@ -194,18 +194,18 @@ def insert_movie(cur, movie):
     print("Inserted: " + movie['title'])
     return handle_genres(cur, movie['id'], movie['genre_ids'])
 
-def handle_movie(conn, cur, movie):
+def handle_movie(conn, cursor, movie):
     try:
         key = check_movie_fields_exist(movie)
         if key:
             movie[key] = set_blank_movie_key(movie, key)
-        if not movie_exists(cur, movie['id']):
+        if not movie_exists(cursor, movie['id']):
             # insert new movie title and additional info
-            if insert_movie(cur, movie):
+            if insert_movie(cursor, movie):
                 # Make the changes to the database persistent
                 conn.commit()
 
-        movie_dict = get_movie_dict(movie['id'])
+        movie_dict = get_movie_dict(conn, cursor, movie['id'])
         return update_movie_and_company_info(conn, cursor, movie_dict)
 
     except psycopg2.DataError:
@@ -269,6 +269,33 @@ def sleep_until_connected(counter):
             time.sleep(30)
     return True
 
+
+def delete_movie(conn, cursor, movie_id):
+    movie_id = str(movie_id)
+    sql = "DELETE FROM categorizations WHERE movie_id = {0}".format(movie_id)
+    cursor.execute(sql)
+    sql = "DELETE FROM movie_lists WHERE movie_id = {0}".format(movie_id)
+    cursor.execute(sql)
+    sql = "DELETE FROM movie_production_companies WHERE movie_id = {0}".format(movie_id)
+    cursor.execute(sql)
+    sql = "DELETE FROM movie_user_recommendations WHERE movie_id = {0}".format(movie_id)
+    cursor.execute(sql)
+    sql = "DELETE FROM reviews WHERE movie_id = {0}".format(movie_id)
+    cursor.execute(sql)
+    sql = "DELETE FROM movies WHERE id = {0}".format(movie_id)
+    cursor.execute(sql)
+    # Make the changes to the database persistent
+    conn.commit()
+
+def delete_ids_in_file(conn, cursor, filename):
+
+    with open(filename, "r") as file_in:
+        lines = []
+        for line in file_in:
+            lines.append(line.rstrip())
+        for movie_id in lines:
+            delete_movie(conn, cursor, movie_id)
+
 def read_titles_from_file(conn, movie_cur, filename, search):
 
     movies_not_found = []
@@ -329,7 +356,7 @@ def update_movie_and_company_info(conn, cursor, movie_dict):
     except ValueError:
         print("Could not convert data to an integer.")
 
-def get_movie_dict(movie_id):
+def get_movie_dict(conn, cursor, movie_id):
 
     try:
         # Get movie info using existing movie id
@@ -339,6 +366,7 @@ def get_movie_dict(movie_id):
         return movie_dict
     except:
         print("Error: movie id (" + str(movie_id) + ") not updated.")
+        delete_movie(conn, cursor, movie_id)
         return False
 
 def update_all_movies(conn, cursor):
@@ -351,7 +379,8 @@ def update_all_movies(conn, cursor):
         # Open a cursor to perform this one specific query
         movie_id_cursor = conn1.cursor('movie_id_cursor')
         # sql = "SELECT id, title FROM movies WHERE created_at > '2019-01-05 01:01:24' ORDER BY title LIMIT 100000"
-        sql = "SELECT id, title FROM movies ORDER BY title LIMIT 108000"
+        # select title from movies where updated_at < NOW() - INTERVAL '1 days' limit 10;
+        sql = "SELECT id FROM movies where age(now(), created_at) > '30 days' AND age(now(), updated_at) > '1 days' ORDER BY title LIMIT 108000"
         movie_id_cursor.execute(sql)
         movies_updated = 0
         while True:
@@ -361,13 +390,13 @@ def update_all_movies(conn, cursor):
             for row in rows:
                 # check that the movie does not already exist in
                 # movie_production_companies table
-                movie_dict = get_movie_dict(row[0])
-                if update_movie_and_company_info(conn, cursor, movie_dict):
-                    movies_updated = movies_updated + 1
+                movie_dict = get_movie_dict(conn, cursor, row[0])
+                # if update_movie_and_company_info(conn, cursor, movie_dict):
+                #    movies_updated = movies_updated + 1
                 counter =  counter + 1
                 if counter % 35 == 0:
                     print('Last movie ID: ' + str(row[0]))
-                    print('Last movie title: ' + str(row[1]))
+                    # print('Last movie title: ' + str(row[1]))
                     print('Movie updated: ' + str(movies_updated))
                     print('Counter: ' + str(counter))
                     # Wait for 10 seconds to avoid rate limiting
@@ -448,6 +477,8 @@ def main():
         "-t", "--theaters", help="insert all movies in theaters into the database", action="store_true")
     parser.add_argument('-f', "--filename", nargs='*',
                         type=str, help='insert movie titles from file into the database')
+    parser.add_argument('-d', "--delete", nargs='*',
+                        type=str, help='delete movie IDs in file from the database')
     args = parser.parse_args()
 
     datetime = time.strftime('%Y-%m-%d %H:%M:%S')
@@ -480,6 +511,13 @@ def main():
         elif args.update:
             print('Updating all movies')
             update_all_movies(conn, movie_cur)
+        elif args.delete:
+            for filename in args.delete:
+                if filename.endswith('.txt'):
+                    print('Reading from ' + filename)
+                    delete_ids_in_file(conn, movie_cur, filename)
+                else:
+                    print('Skipping: ' + filename)
 
     finally:
         # Close communication with the database
